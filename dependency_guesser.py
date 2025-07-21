@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
+#!python3
 import argparse
+import json
 import logging
 import os
 import re
@@ -8,6 +9,32 @@ import sys
 
 # Define the standard name for the virtual environment directory
 VENV_NAME = "env"
+
+
+def get_local_dir() -> str:
+    """
+    Returns the directory where this script is located.
+    This is useful for loading local resources or configuration files.
+    """
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def load_aliases() -> dict:
+    """
+    Loads the aliases from a JSON file located in the same directory as this script.
+    """
+    local_dir = get_local_dir()
+    aliases_file = os.path.join(local_dir, "aliases.json")
+    if not os.path.exists(aliases_file):
+        logging.warning(f"Aliases file not found: {aliases_file}")
+        return {}
+
+    with open(aliases_file, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse aliases file: {e}")
+            return {}
 
 
 def parse_missing_module(stderr_output):
@@ -25,6 +52,9 @@ def parse_missing_module(stderr_output):
         if match:
             return match.group(1)
     return None
+
+
+aliases = load_aliases()
 
 
 def install_package(package_name, python_executable, assume_yes=False):
@@ -48,13 +78,20 @@ def install_package(package_name, python_executable, assume_yes=False):
             sys.exit(1)
 
     logging.info(f"Attempting to install '{package_name}' with pip...")
+    alias = aliases.get(package_name, {"package_name": package_name, "cwd": None})
+    if alias["package_name"] == ".":
+        pkg = ["-e", "."]
+    else:
+        pkg = [alias["package_name"]]
+
     try:
         # Running pip as a module of the potentially virtualized python
         install_process = subprocess.run(
-            [python_executable, "-m", "pip", "install", package_name],
+            [python_executable, "-m", "pip", "install"] + pkg,
             check=True,
             capture_output=True,
             text=True,
+            cwd=alias.get("cwd"),
         )
         logging.info(f"Successfully installed '{package_name}'.")
         print(install_process.stdout)
